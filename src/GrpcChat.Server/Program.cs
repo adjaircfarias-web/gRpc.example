@@ -1,5 +1,6 @@
 using GrpcChat.Server.Extensions;
 using GrpcChat.Server.Interceptors;
+using GrpcChat.Server.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,6 +15,9 @@ builder.Services.AddGrpc(options =>
 builder.Services.AddRedisServices(builder.Configuration);
 
 var app = builder.Build();
+
+// Map gRPC services
+app.MapGrpcService<ChatService>();
 
 app.MapGet("/", () => "gRPC Chat Server is running");
 
