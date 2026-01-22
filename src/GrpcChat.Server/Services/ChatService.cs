@@ -83,4 +83,67 @@ public class ChatService : Contracts.ChatService.ChatServiceBase
             LastSeen = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
         };
     }
+
+    public override async Task ReceiveMessages(
+        JoinRoomRequest request,
+        IServerStreamWriter<ChatMessage> responseStream,
+        ServerCallContext context)
+    {
+        _logger.LogInformation("User {UserId} joining room {RoomId} for message stream",
+            request.UserId, request.RoomId);
+
+        // Phase 1: Send historical messages
+        var history = await _chatRepository.GetRecentMessagesAsync(request.RoomId, 50);
+        _logger.LogInformation("Sending {Count} historical messages from room {RoomId}",
+            history.Count, request.RoomId);
+
+        foreach (var msg in history)
+        {
+            await responseStream.WriteAsync(msg);
+        }
+
+        // Phase 2: Stream new messages
+        var messageNumber = 1;
+        while (!context.CancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                // Wait 2-5 seconds before generating a new message
+                await Task.Delay(
+                    Random.Shared.Next(2000, 5000),
+                    context.CancellationToken);
+
+                var message = new ChatMessage
+                {
+                    MessageId = Guid.NewGuid().ToString(),
+                    UserId = "bot",
+                    Username = "ChatBot",
+                    RoomId = request.RoomId,
+                    Content = $"Simulated message #{messageNumber} in room {request.RoomId}",
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                    Type = MessageType.Regular
+                };
+
+                // Persist to Redis BEFORE sending
+                await _chatRepository.AddMessageAsync(message);
+
+                // Send to client
+                await responseStream.WriteAsync(message);
+
+                _logger.LogDebug("Sent message #{MessageNumber} to room {RoomId}",
+                    messageNumber, request.RoomId);
+
+                messageNumber++;
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Message stream cancelled for user {UserId} in room {RoomId}",
+                    request.UserId, request.RoomId);
+                break;
+            }
+        }
+
+        _logger.LogInformation("Message stream ended for user {UserId} in room {RoomId}. Total messages sent: {Count}",
+            request.UserId, request.RoomId, messageNumber - 1);
+    }
 }
