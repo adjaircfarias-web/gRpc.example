@@ -1,2 +1,8 @@
 <Solution>
+  <Folder Name="/.docs/" />
+  <Folder Name="/src/">
+    <Project Path="src/GrpcChat.Contracts/GrpcChat.Contracts.csproj" />
+    <Project Path="src/GrpcChat.Server/GrpcChat.Server.csproj" />
+    <Project Path="src/GrpcChat.Client/GrpcChat.Client.csproj" />
+  </Folder>
 </Solution>
