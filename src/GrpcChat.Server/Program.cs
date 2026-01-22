@@ -1,11 +1,13 @@
 using GrpcChat.Server.Extensions;
+using GrpcChat.Server.Interceptors;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add gRPC services
+// Add gRPC services with interceptor
 builder.Services.AddGrpc(options =>
 {
     options.EnableDetailedErrors = true;
+    options.Interceptors.Add<ServerLoggingInterceptor>();
 });
 
 // Add Redis services
