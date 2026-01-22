@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  # Redis - Persistência de dados
+  redis:
+    image: redis:7.2-alpine
+    container_name: grpc-chat-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --appendfsync everysec
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - grpc-chat-network
+    restart: unless-stopped
+
+  # Redis Commander - UI para visualizar dados do Redis (opcional)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: grpc-chat-redis-ui
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - grpc-chat-network
+    restart: unless-stopped
+    profiles:
+      - dev
+
+volumes:
+  redis-data:
+    driver: local
+    name: grpc-chat-redis-data
+
+networks:
+  grpc-chat-network:
+    driver: bridge
+    name: grpc-chat-network
