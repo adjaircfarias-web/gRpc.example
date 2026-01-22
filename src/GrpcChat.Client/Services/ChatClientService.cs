@@ -101,4 +101,60 @@ public class ChatClientService
             _logger.LogError(ex, "RPC error getting user status: {Status}", ex.Status);
         }
     }
+
+    public async Task ReceiveMessagesAsync(string roomId, CancellationToken cancellationToken)
+    {
+        if (_currentUser == null)
+        {
+            _logger.LogWarning("Must register before joining a room");
+            return;
+        }
+
+        try
+        {
+            var request = new JoinRoomRequest
+            {
+                UserId = _currentUser.UserId,
+                RoomId = roomId
+            };
+
+            var deadline = DateTime.UtcNow.AddSeconds(60);
+
+            using var call = _client.ReceiveMessages(
+                request,
+                deadline: deadline,
+                cancellationToken: cancellationToken);
+
+            _logger.LogInformation("Listening for messages in room {RoomId}...", roomId);
+            _logger.LogInformation("Press Ctrl+C to stop receiving messages.");
+
+            await foreach (var message in call.ResponseStream.ReadAllAsync(cancellationToken))
+            {
+                var timestamp = DateTimeOffset.FromUnixTimeSeconds(message.Timestamp);
+                var formattedTime = timestamp.ToLocalTime().ToString("HH:mm:ss");
+
+                Console.WriteLine($"[{formattedTime}] {message.Username}: {message.Content}");
+            }
+        }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.DeadlineExceeded)
+        {
+            _logger.LogWarning("Message stream timed out after 60 seconds");
+        }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
+        {
+            _logger.LogInformation("Message stream cancelled by user");
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Message stream cancelled by user");
+        }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.Unavailable)
+        {
+            _logger.LogError("Server unavailable. Please check if the server is running.");
+        }
+        catch (RpcException ex)
+        {
+            _logger.LogError(ex, "Error in message stream: {Status}", ex.Status);
+        }
+    }
 }
