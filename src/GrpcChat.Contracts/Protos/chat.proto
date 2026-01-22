@@ -1,0 +1,91 @@
+syntax = "proto3";
+
+option csharp_namespace = "GrpcChat.Contracts";
+
+package chat;
+
+// Enum for message types
+enum MessageType {
+  MESSAGE_TYPE_UNSPECIFIED = 0;
+  MESSAGE_TYPE_REGULAR = 1;
+  MESSAGE_TYPE_SYSTEM = 2;
+  MESSAGE_TYPE_JOIN = 3;
+  MESSAGE_TYPE_LEAVE = 4;
+}
+
+// User messages
+message User {
+  string user_id = 1;
+  string username = 2;
+  int64 registered_at = 3;
+}
+
+message RegisterUserRequest {
+  string username = 1;
+}
+
+message RegisterUserResponse {
+  User user = 1;
+  bool success = 2;
+  string message = 3;
+}
+
+// User status messages
+message GetUserStatusRequest {
+  string user_id = 1;
+}
+
+message UserStatus {
+  string user_id = 1;
+  string username = 2;
+  bool is_online = 3;
+  int64 last_seen = 4;
+}
+
+// Room and chat messages
+message JoinRoomRequest {
+  string user_id = 1;
+  string room_id = 2;
+}
+
+message ChatMessage {
+  string message_id = 1;
+  string user_id = 2;
+  string username = 3;
+  string room_id = 4;
+  string content = 5;
+  int64 timestamp = 6;
+  MessageType type = 7;
+}
+
+// Bidirectional streaming messages
+message StreamChatRequest {
+  oneof request {
+    JoinRoomRequest join = 1;
+    ChatMessage message = 2;
+    string leave_room = 3;
+  }
+}
+
+message StreamChatResponse {
+  oneof response {
+    ChatMessage message = 1;
+    string system_message = 2;
+    UserStatus user_status = 3;
+  }
+}
+
+// Chat Service definition
+service ChatService {
+  // Unary RPC - Register a new user
+  rpc RegisterUser (RegisterUserRequest) returns (RegisterUserResponse);
+
+  // Unary RPC - Get user status
+  rpc GetUserStatus (GetUserStatusRequest) returns (UserStatus);
+
+  // Server Streaming RPC - Receive messages from a room
+  rpc ReceiveMessages (JoinRoomRequest) returns (stream ChatMessage);
+
+  // Bidirectional Streaming RPC - Full duplex chat
+  rpc ChatStream (stream StreamChatRequest) returns (stream StreamChatResponse);
+}
