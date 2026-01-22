@@ -31,6 +31,7 @@ public static class RedisServiceExtensions
 
         // Register repositories
         services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<IChatRepository, ChatRepository>();
 
         return services;
     }
