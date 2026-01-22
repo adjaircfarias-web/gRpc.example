@@ -1,5 +1,5 @@
 using GrpcChat.Client.Extensions;
-using GrpcChat.Client.Services;
+using GrpcChat.Client.Menu;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -14,14 +14,11 @@ builder.Logging.SetMinimumLevel(LogLevel.Information);
 // Add gRPC client services
 builder.Services.AddGrpcChatClient("https://localhost:5001");
 
+// Add console menu
+builder.Services.AddSingleton<ConsoleMenu>();
+
 var host = builder.Build();
 
-// Get the chat service and run
-var chatService = host.Services.GetRequiredService<ChatClientService>();
-var logger = host.Services.GetRequiredService<ILogger<Program>>();
-
-logger.LogInformation("gRPC Chat Client started. Server: https://localhost:5001");
-logger.LogInformation("Client is ready. Menu will be implemented in US-014.");
-
-Console.WriteLine("Press any key to exit...");
-Console.ReadKey();
+// Run the interactive menu
+var menu = host.Services.GetRequiredService<ConsoleMenu>();
+await menu.RunAsync();
