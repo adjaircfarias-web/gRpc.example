@@ -157,4 +157,124 @@ public class ChatClientService
             _logger.LogError(ex, "Error in message stream: {Status}", ex.Status);
         }
     }
+
+    public async Task ChatStreamAsync(string roomId, CancellationToken cancellationToken)
+    {
+        if (_currentUser == null)
+        {
+            _logger.LogWarning("Must register before joining chat");
+            return;
+        }
+
+        try
+        {
+            using var call = _client.ChatStream(cancellationToken: cancellationToken);
+
+            // BACKGROUND TASK for reading responses
+            var readTask = Task.Run(async () =>
+            {
+                try
+                {
+                    await foreach (var response in call.ResponseStream.ReadAllAsync(cancellationToken))
+                    {
+                        switch (response.ResponseCase)
+                        {
+                            case StreamChatResponse.ResponseOneofCase.Message:
+                                var msg = response.Message;
+                                var timestamp = DateTimeOffset.FromUnixTimeSeconds(msg.Timestamp);
+                                Console.WriteLine(
+                                    $"[{timestamp.ToLocalTime():HH:mm:ss}] {msg.Username}: {msg.Content}");
+                                break;
+
+                            case StreamChatResponse.ResponseOneofCase.SystemMessage:
+                                Console.WriteLine($"[SYSTEM] {response.SystemMessage}");
+                                break;
+
+                            case StreamChatResponse.ResponseOneofCase.UserStatus:
+                                var status = response.UserStatus;
+                                Console.WriteLine(
+                                    $"[STATUS] {status.Username} is {(status.IsOnline ? "online" : "offline")}");
+                                break;
+                        }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    _logger.LogDebug("Response reader cancelled");
+                }
+                catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
+                {
+                    _logger.LogDebug("Response stream cancelled");
+                }
+            }, cancellationToken);
+
+            // Send join request
+            await call.RequestStream.WriteAsync(new StreamChatRequest
+            {
+                Join = new JoinRoomRequest
+                {
+                    UserId = _currentUser.UserId,
+                    RoomId = roomId
+                }
+            });
+
+            _logger.LogInformation("Joined chat room {RoomId}. Type messages (or 'exit' to leave):", roomId);
+
+            // MAIN THREAD reads user input
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                var input = Console.ReadLine();
+
+                if (string.IsNullOrEmpty(input))
+                    continue;
+
+                if (input.Equals("exit", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Send leave room request
+                    await call.RequestStream.WriteAsync(new StreamChatRequest
+                    {
+                        LeaveRoom = roomId
+                    });
+                    break;
+                }
+
+                // Send chat message
+                var message = new ChatMessage
+                {
+                    MessageId = Guid.NewGuid().ToString(),
+                    UserId = _currentUser.UserId,
+                    Username = _currentUser.Username,
+                    RoomId = roomId,
+                    Content = input,
+                    Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                    Type = MessageType.Regular
+                };
+
+                await call.RequestStream.WriteAsync(new StreamChatRequest
+                {
+                    Message = message
+                });
+            }
+
+            // GRACEFUL SHUTDOWN
+            await call.RequestStream.CompleteAsync();
+
+            // Wait for read task to complete
+            await readTask;
+
+            _logger.LogInformation("Exited chat room {RoomId}", roomId);
+        }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.Unavailable)
+        {
+            _logger.LogError("Server unavailable. Please check if the server is running.");
+        }
+        catch (RpcException ex)
+        {
+            _logger.LogError(ex, "Error in chat stream: {Status}", ex.Status);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Chat stream cancelled");
+        }
+    }
 }
