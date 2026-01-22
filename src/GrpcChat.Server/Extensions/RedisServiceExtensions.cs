@@ -1,3 +1,4 @@
+using GrpcChat.Server.Repositories;
 using StackExchange.Redis;
 
 namespace GrpcChat.Server.Extensions;
@@ -27,6 +28,9 @@ public static class RedisServiceExtensions
                 throw;
             }
         });
+
+        // Register repositories
+        services.AddScoped<IUserRepository, UserRepository>();
 
         return services;
     }
