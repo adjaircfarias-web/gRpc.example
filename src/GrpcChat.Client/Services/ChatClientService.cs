@@ -1,3 +1,4 @@
+using Grpc.Core;
 using GrpcChat.Contracts;
 using Microsoft.Extensions.Logging;
 
@@ -17,5 +18,87 @@ public class ChatClientService
     {
         _client = client;
         _logger = logger;
+    }
+
+    public async Task<User?> RegisterUserAsync(string username)
+    {
+        try
+        {
+            var request = new RegisterUserRequest { Username = username };
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+
+            _logger.LogInformation("Registering user: {Username}", username);
+
+            var response = await _client.RegisterUserAsync(
+                request,
+                deadline: deadline);
+
+            if (response.Success)
+            {
+                _currentUser = response.User;
+                _logger.LogInformation(
+                    "Successfully registered as {Username} with ID {UserId}",
+                    username, response.User.UserId);
+                return response.User;
+            }
+
+            _logger.LogWarning("Registration failed: {Message}", response.Message);
+            return null;
+        }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.DeadlineExceeded)
+        {
+            _logger.LogError("Registration timed out after 5 seconds");
+            return null;
+        }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.Unavailable)
+        {
+            _logger.LogError("Server unavailable. Please check if the server is running.");
+            return null;
+        }
+        catch (RpcException ex)
+        {
+            _logger.LogError(ex, "RPC error during registration: {Status}", ex.Status);
+            return null;
+        }
+    }
+
+    public async Task GetUserStatusAsync(string userId)
+    {
+        try
+        {
+            var request = new GetUserStatusRequest { UserId = userId };
+            var deadline = DateTime.UtcNow.AddSeconds(3);
+
+            _logger.LogInformation("Getting status for user: {UserId}", userId);
+
+            var response = await _client.GetUserStatusAsync(
+                request,
+                deadline: deadline);
+
+            var lastSeen = DateTimeOffset.FromUnixTimeSeconds(response.LastSeen);
+
+            _logger.LogInformation(
+                "User {Username} ({UserId}) is {Status}. Last seen: {LastSeen}",
+                response.Username,
+                response.UserId,
+                response.IsOnline ? "online" : "offline",
+                lastSeen.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"));
+        }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.DeadlineExceeded)
+        {
+            _logger.LogError("Get user status timed out after 3 seconds");
+        }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.NotFound)
+        {
+            _logger.LogWarning("User not found: {UserId}", userId);
+        }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.Unavailable)
+        {
+            _logger.LogError("Server unavailable. Please check if the server is running.");
+        }
+        catch (RpcException ex)
+        {
+            _logger.LogError(ex, "RPC error getting user status: {Status}", ex.Status);
+        }
     }
 }
