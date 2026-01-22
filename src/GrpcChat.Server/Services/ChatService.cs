@@ -146,4 +146,136 @@ public class ChatService : Contracts.ChatService.ChatServiceBase
         _logger.LogInformation("Message stream ended for user {UserId} in room {RoomId}. Total messages sent: {Count}",
             request.UserId, request.RoomId, messageNumber - 1);
     }
+
+    public override async Task ChatStream(
+        IAsyncStreamReader<StreamChatRequest> requestStream,
+        IServerStreamWriter<StreamChatResponse> responseStream,
+        ServerCallContext context)
+    {
+        var clientId = context.Peer;
+        var messagesReceived = 0;
+        var messagesSent = 0;
+
+        _logger.LogInformation("Bidirectional chat stream started for {Client}", clientId);
+
+        try
+        {
+            await foreach (var request in requestStream.ReadAllAsync(context.CancellationToken))
+            {
+                messagesReceived++;
+
+                switch (request.RequestCase)
+                {
+                    case StreamChatRequest.RequestOneofCase.Join:
+                        await HandleJoinRoom(request.Join, responseStream);
+                        messagesSent++;
+                        break;
+
+                    case StreamChatRequest.RequestOneofCase.Message:
+                        messagesSent += await HandleChatMessage(request.Message, responseStream);
+                        break;
+
+                    case StreamChatRequest.RequestOneofCase.LeaveRoom:
+                        await HandleLeaveRoom(request.LeaveRoom, responseStream);
+                        messagesSent++;
+                        break;
+
+                    default:
+                        _logger.LogWarning("Unknown request type received from {Client}", clientId);
+                        break;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Chat stream cancelled for {Client}", clientId);
+        }
+
+        _logger.LogInformation(
+            "Bidirectional chat stream ended for {Client}. Messages received: {Received}, Messages sent: {Sent}",
+            clientId, messagesReceived, messagesSent);
+    }
+
+    private async Task HandleJoinRoom(
+        JoinRoomRequest request,
+        IServerStreamWriter<StreamChatResponse> responseStream)
+    {
+        _logger.LogInformation("User {UserId} joining room {RoomId}",
+            request.UserId, request.RoomId);
+
+        var response = new StreamChatResponse
+        {
+            SystemMessage = $"Welcome to room {request.RoomId}!"
+        };
+
+        await responseStream.WriteAsync(response);
+    }
+
+    private async Task<int> HandleChatMessage(
+        ChatMessage message,
+        IServerStreamWriter<StreamChatResponse> responseStream)
+    {
+        var messagesSent = 0;
+
+        // Save message to Redis
+        await _chatRepository.AddMessageAsync(message);
+
+        _logger.LogDebug("Message received from {Username} in room {RoomId}: {Content}",
+            message.Username, message.RoomId, message.Content);
+
+        // Echo message back
+        var response = new StreamChatResponse
+        {
+            Message = message
+        };
+        await responseStream.WriteAsync(response);
+        messagesSent++;
+
+        // Simulate bot response for "hello"
+        if (message.Content.Contains("hello", StringComparison.OrdinalIgnoreCase))
+        {
+            await Task.Delay(500);
+
+            var botMessage = new ChatMessage
+            {
+                MessageId = Guid.NewGuid().ToString(),
+                UserId = "bot",
+                Username = "ChatBot",
+                RoomId = message.RoomId,
+                Content = $"Hello {message.Username}! How can I help you?",
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                Type = MessageType.Regular
+            };
+
+            // Save bot message to Redis
+            await _chatRepository.AddMessageAsync(botMessage);
+
+            var botResponse = new StreamChatResponse
+            {
+                Message = botMessage
+            };
+
+            await responseStream.WriteAsync(botResponse);
+            messagesSent++;
+
+            _logger.LogDebug("Bot responded to {Username} in room {RoomId}",
+                message.Username, message.RoomId);
+        }
+
+        return messagesSent;
+    }
+
+    private async Task HandleLeaveRoom(
+        string roomId,
+        IServerStreamWriter<StreamChatResponse> responseStream)
+    {
+        _logger.LogInformation("User leaving room {RoomId}", roomId);
+
+        var response = new StreamChatResponse
+        {
+            SystemMessage = $"You left room {roomId}"
+        };
+
+        await responseStream.WriteAsync(response);
+    }
 }
