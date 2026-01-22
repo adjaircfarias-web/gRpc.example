@@ -20,6 +20,25 @@ services:
       - grpc-chat-network
     restart: unless-stopped
 
+  # gRPC Chat Server
+  server:
+    build:
+      context: .
+      dockerfile: src/GrpcChat.Server/Dockerfile
+    container_name: grpc-chat-server
+    ports:
+      - "5001:5001"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:5001
+      - ConnectionStrings__Redis=redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - grpc-chat-network
+    restart: unless-stopped
+
   # Redis Commander - UI para visualizar dados do Redis (opcional)
   redis-commander:
     image: rediscommander/redis-commander:latest
